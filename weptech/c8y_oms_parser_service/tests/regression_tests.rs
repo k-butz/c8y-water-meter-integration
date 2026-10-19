@@ -130,6 +130,19 @@ fn mode7_ignores_tpl_lookalike_inside_afl() {
 }
 
 #[test]
+fn mode7_afl_with_key_information_is_rejected() {
+    let key = hex::decode(MODE7_KEY).unwrap();
+
+    let mut frame = mode7_frame();
+    frame[16] |= 0x02; // FCL bit 9: key information field present
+
+    let err = build_driver_registry()
+        .process(&frame, Some(7), Some(&key))
+        .expect_err("AFL with key information is not supported");
+    assert!(err.to_string().contains("key information"), "{}", err);
+}
+
+#[test]
 fn ci_0x78_has_no_tpl_header() {
     let frame = axioma_frame(&[0x78, 0x04, 0x13, 0x10, 0x27, 0x00, 0x00]);
     let result = build_driver_registry().process(&frame, None, None).unwrap();

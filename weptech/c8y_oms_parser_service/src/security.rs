@@ -347,7 +347,10 @@ impl SecurityEngine {
             mcr_pos += 1;
         }
         if fcl & (1 << 9) != 0 {
-            mcr_pos += 2;
+            return Err(ParseError::DecryptionError(format!(
+                "Mode 7 AFL with key information is not supported (FCL=0x{:04X})",
+                fcl
+            )));
         }
 
         if fcl & (1 << 11) == 0 {
