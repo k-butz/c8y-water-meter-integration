@@ -1,5 +1,6 @@
 {
   "apiVersion": "2",
+  "name": "@microservice.name@",
   "version": "@project.version@",
   "provider": {
     "name": "Cumulocity"

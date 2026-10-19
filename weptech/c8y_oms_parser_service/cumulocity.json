@@ -1,6 +1,7 @@
 {
   "apiVersion": "2",
-  "version": "1.0.68",
+  "name": "c8y-oms-parser",
+  "version": "1.0.69-SNAPSHOT",
   "provider": {
     "name": "Cumulocity"
   },
