@@ -48,9 +48,9 @@ import com.cumulocity.rest.representation.identity.ExternalIDRepresentation;
 import com.cumulocity.sdk.client.identity.IdentityApi;
 import  com.cumulocity.rest.representation.inventory.ManagedObjectRepresentation;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
