@@ -73,6 +73,8 @@ public class OMSDecoderC8YParserService implements DecoderService{
     private final RestConnector restConnector;
     private final ContextService<MicroserviceCredentials> contextService;
     private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
+    private final String baseUrl;
 
     // Use the explicit internal reverse-proxy path target registered via your cumulocity.json manifest
     private static final String PARSER_INTERNAL_PATH = "/service/c8y-oms-parser/api/v1/parse";
@@ -80,9 +82,20 @@ public class OMSDecoderC8YParserService implements DecoderService{
     @Autowired
     public OMSDecoderC8YParserService(RestConnector restConnector,
                                       ContextService<MicroserviceCredentials> contextService) {
+        this(restConnector, contextService,
+                HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build(),
+                System.getenv("C8Y_BASEURL"));
+    }
+
+    OMSDecoderC8YParserService(RestConnector restConnector,
+                               ContextService<MicroserviceCredentials> contextService,
+                               HttpClient httpClient,
+                               String baseUrl) {
         this.restConnector = restConnector;
         this.contextService = contextService;
         this.objectMapper = new ObjectMapper();
+        this.httpClient = httpClient;
+        this.baseUrl = baseUrl;
     }
 
     @Override
@@ -198,15 +211,10 @@ public class OMSDecoderC8YParserService implements DecoderService{
             log.info("Sending payload to parser microservice...");
 
             // 1. Manually build the standard Cumulocity Basic Auth token: tenant/username:password
-            String baseUrl = System.getenv("C8Y_BASEURL");
             String authString = credentials.getTenant() + "/" + credentials.getUsername() + ":" + credentials.getPassword();
             String encodedAuth = Base64.getEncoder().encodeToString(authString.getBytes(StandardCharsets.UTF_8));
             String basicAuthHeader = "Basic " + encodedAuth;
             //String constantJsonBody = "{\"payload\": \"YUQJB3RFcgkgB3pKEAAABG0NCl02BCCgNUcBBBMAAAAABJM7AAAAAASTPAAAAAACOwAAAlnw2ERtAABBNkQTAAAAAESTOwAAAABEkzwAAAAANP0XAQAAAAQkVzNHAQH9dGE=\"}";
-
-            HttpClient client = HttpClient.newBuilder()
-                    .version(HttpClient.Version.HTTP_1_1)
-                    .build();
 
             log.info("Base URL is ===> : " + baseUrl);
 
@@ -224,7 +232,7 @@ public class OMSDecoderC8YParserService implements DecoderService{
                     .POST(HttpRequest.BodyPublishers.ofString(dynamicJsonBody))
                     .build();
 
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 log.info("SUCCESS! Constant payload communication works. Response: {}", response.body());
