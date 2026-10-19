@@ -35,6 +35,15 @@ impl From<Option<u8>> for EncryptionMode {
 }
 
 // ================================================================
+// TRANSPORT LAYER HEADER
+// ================================================================
+
+struct TplHeader {
+    /// Header length including the CI field
+    len: usize,
+}
+
+// ================================================================
 // MODE 7 PARSED SECURITY INFORMATION (Moved to module scope)
 // ================================================================
 
@@ -47,29 +56,33 @@ struct Mode7SecurityInfo {
 pub struct SecurityEngine;
 
 impl SecurityEngine {
-    /// Returns the payload following the DLL header, decrypted according
-    /// to `mode`.
+    /// Returns the application data (data records) following the transport
+    /// layer header, decrypted according to `mode`.
     pub fn decrypt_payload(
         mode: EncryptionMode,
         raw_payload: &[u8],
         header_len: usize,
         key: Option<&[u8]>,
     ) -> Result<Vec<u8>, ParseError> {
-        if raw_payload.len() < header_len {
+        if raw_payload.len() <= header_len {
             return Err(ParseError::HeaderError(
                 "Payload shorter than specified header length".into(),
             ));
         }
 
-        let payload_to_decrypt = &raw_payload[header_len..];
-
         match mode {
-            EncryptionMode::None => Ok(payload_to_decrypt.to_vec()),
+            EncryptionMode::None => {
+                let tpl = Self::parse_tpl(raw_payload, header_len)?;
+
+                Ok(raw_payload[header_len + tpl.len..].to_vec())
+            }
 
             // ---------------------------------------------------------
             // MODE 5
             // ---------------------------------------------------------
             EncryptionMode::Mode5 => {
+                let payload_to_decrypt = &raw_payload[header_len..];
+
                 let key_bytes = key.ok_or_else(|| {
                     ParseError::DecryptionError(
                         "OMS Mode 5 requires a 128-bit key".into(),
@@ -170,6 +183,38 @@ impl SecurityEngine {
                 Ok(buf)
             }
         }
+    }
+
+    // ================================================================
+    // TPL PARSER
+    // ================================================================
+
+    fn parse_tpl(raw_payload: &[u8], ci_pos: usize) -> Result<TplHeader, ParseError> {
+        let ci = raw_payload[ci_pos];
+
+        let len = match ci {
+            // No TPL header
+            0x78 => 1,
+            // Short TPL header: CI ACC STS CF CF
+            0x7A => 5,
+            // Long TPL header: CI ID(4) M(2) VER TYPE ACC STS CF CF
+            0x72 | 0x73 | 0x7E => 13,
+            _ => {
+                return Err(ParseError::InvalidFrame(format!(
+                    "Unsupported CI field 0x{:02X}",
+                    ci
+                )))
+            }
+        };
+
+        if raw_payload.len() < ci_pos + len {
+            return Err(ParseError::InvalidFrame(format!(
+                "Incomplete TPL header for CI 0x{:02X}",
+                ci
+            )));
+        }
+
+        Ok(TplHeader { len })
     }
 
     // ================================================================

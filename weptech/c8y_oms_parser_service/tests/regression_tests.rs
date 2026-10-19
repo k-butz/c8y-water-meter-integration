@@ -4,7 +4,7 @@
 // code before the corresponding fix.
 
 use c8y_oms_parser_service::registry::build_driver_registry;
-use c8y_oms_parser_service::traits::{parse_vif, ParsedMeasurements};
+use c8y_oms_parser_service::traits::{parse_vif, parse_wmbus_records, ParsedMeasurements};
 
 /// Builds a full wM-Bus frame for the Axioma meter (M=AXI, ID 09724574,
 /// version 0x20, type 0x07) from everything after the DLL header and sets L.
@@ -37,6 +37,22 @@ fn unencrypted_trailing_0x2f_data_byte_is_kept() {
     let result = build_driver_registry().process(&frame, None, None).unwrap();
 
     assert_eq!(find(&result.parsed_measurements, "01FD74").value, "47");
+}
+
+#[test]
+fn record_data_is_not_mistaken_for_tpl_header() {
+    // Decrypted application data (no CI byte). Byte 10 is 0x7A, which the
+    // header heuristic took for a CI field and skipped 15 bytes.
+    let records = [
+        0x04, 0x13, 0x10, 0x27, 0x00, 0x00, // Volume 10 m³
+        0x02, 0xFD, 0x74, 0x00, 0x7A, // Battery 0x7A00 days
+        0x2F, // AES filler
+    ];
+    let parsed = parse_wmbus_records(&records);
+
+    assert_eq!(parsed.len(), 2, "{:?}", parsed);
+    assert_eq!(find(&parsed, "0413").value, "10");
+    assert_eq!(find(&parsed, "02FD74").value, "31232");
 }
 
 #[test]

@@ -44,13 +44,9 @@ impl MeterDriver for DiehlDriver {
         // Determine effective mode and decrypt if key is supplied or mode demands it
         let effective_mode = oms_mode.unwrap_or_else(|| if key.is_some() { 7 } else { 0 });
 
-        let decrypted_payload = if effective_mode == 0 && key.is_none() {
-            // Unencrypted payload: slice directly past the DLL header
-            raw_payload[HEADER_OFFSET..].to_vec()
-        } else {
-            let mode = EncryptionMode::from(Some(effective_mode));
-            SecurityEngine::decrypt_payload(mode, raw_payload, HEADER_OFFSET, key)?
-        };
+        let mode = EncryptionMode::from(Some(effective_mode));
+        let decrypted_payload =
+            SecurityEngine::decrypt_payload(mode, raw_payload, HEADER_OFFSET, key)?;
 
         // Debug log decrypted byte stream
         tracing::info!("Decrypted Payload Hex: {}", hex::encode(&decrypted_payload).to_uppercase());
