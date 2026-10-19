@@ -121,13 +121,15 @@ public class OMSDecoderC8YParserService implements DecoderService{
 
            //extract meter data
            CSVParser parser = CSVFormat.DEFAULT.parse(new StringReader(decodedString));
-           CSVRecord record = parser.getRecords().get(0);
+           List<CSVRecord> records = parser.getRecords();
 
-           if (record == null || record.size() < 8) {
-               log.error("Extracted Meter Payload from Weptech GW is less than 8 elements.");
+           // fields 7 (serial) and 8 (payload) are required
+           if (records.isEmpty() || records.get(0).size() < 9) {
+               log.error("Extracted Meter Payload from Weptech GW is less than 9 elements.");
                return decoderResult;
-               //throw new DecoderServiceException(new Throwable("Extracted Meter Payload from Weptech GW is less than 8 elements."), "Extracted Meter Payload from Weptech GW is less than 8 elements: " + record ,decoderResult );
            }
+
+           CSVRecord record = records.get(0);
 
            meterSerial = record.get(7);
            meterPayload = record.get(8);
