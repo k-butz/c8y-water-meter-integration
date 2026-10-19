@@ -6,7 +6,7 @@
     "name": "Cumulocity"
   },
   "isolation": "MULTI_TENANT",
-  "replicas": 2,
+  "replicas": 1,
   "resources": {
     "memory": "384Mi",
     "cpu": "0.5"
