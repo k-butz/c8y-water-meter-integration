@@ -165,12 +165,6 @@ public class OMSDecoderC8YParserService implements DecoderService{
                    responseBody = parseOMSPayload(meterPayload, null, meterOmsMode.longValue());
                }
 
-
-               if (responseBody == null) {
-                   log.error("There is no Response from OMS Parser ");
-                   throw new DecoderServiceException(new Throwable("There is no Response from OMS Parser"), "There is no Response from OMS Parser",decoderResult );
-               }
-
                // parse response body
                parsewMbusPayload(meterMO, responseBody);
 
@@ -206,13 +200,14 @@ public class OMSDecoderC8YParserService implements DecoderService{
         return null;
     }
 
-    private  String parseOMSPayload(String payloadToDecode, String encryptionKey, long omsMode) {
+    private  String parseOMSPayload(String payloadToDecode, String encryptionKey, long omsMode) throws DecoderServiceException {
 
         MicroserviceCredentials credentials = contextService.getContext();
         if (credentials == null) {
             throw new IllegalStateException("Execution thread must be running within an active Cumulocity tenant context.");
         }
 
+        HttpResponse<String> response;
         try {
             ObjectNode requestBody = objectMapper.createObjectNode();
             requestBody.put("payload", payloadToDecode);
@@ -249,20 +244,19 @@ public class OMSDecoderC8YParserService implements DecoderService{
                     .POST(HttpRequest.BodyPublishers.ofString(dynamicJsonBody))
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                log.info("SUCCESS! Constant payload communication works. Response: {}", response.body());
-                return response.body();
-            } else {
-                // FORCEFUL EXCEPTION: This breaks the execution and prints the exact error response body to your terminal logs
-                throw new DecoderServiceException(new Throwable("HTTP FAILURE CODE"), "HTTP FAILURE CODE: " + response.statusCode() + " | PROXY ERROR BODY: " + response.body(), new DecoderResult());
-            }
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (Exception e) {
             log.error("CRITICAL EXCEPTION PASSED INSIDE COMMUNICATION LAYER: ", e);
-            return null;
-            //throw new DecoderServiceException(new Throwable("Underlying communication failure"), "Underlying communication failure", new DecoderResult());
+            throw new DecoderServiceException(e, "Underlying communication failure: " + e.getMessage(), new DecoderResult());
         }
+
+        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            log.info("SUCCESS! Constant payload communication works. Response: {}", response.body());
+            return response.body();
+        }
+
+        log.error("OMS Parser returned HTTP {}: {}", response.statusCode(), response.body());
+        throw new DecoderServiceException(new Throwable("HTTP FAILURE CODE"), "HTTP FAILURE CODE: " + response.statusCode() + " | PROXY ERROR BODY: " + response.body(), new DecoderResult());
     }
 
     /*private  JSONObject extractTemperatureData(JSONObject payload) {

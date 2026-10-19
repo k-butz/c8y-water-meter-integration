@@ -25,6 +25,7 @@ import static org.mockito.Mockito.*;
 
 class OMSDecoderC8YParserServiceTest {
 
+    private static final String KEY = "00112233445566778899AABBCCDDEEFF";
     private static final String EMPTY_RESULT = "{\"status\":\"success\",\"data\":{\"parsed_measurements\":[]}}";
 
     private final IdentityApi identityApi = mock(IdentityApi.class);
@@ -105,5 +106,14 @@ class OMSDecoderC8YParserServiceTest {
 
         assertDoesNotThrow(this::decodeValidTelegram);
         verify(httpClient).send(any(HttpRequest.class), any());
+    }
+
+    @Test
+    void parserErrorMessageIsPropagated() throws Exception {
+        meter(7L, KEY);
+        parserResponds(422, "{\"status\":\"error\",\"error\":\"Decryption failed: wrong key\"}");
+
+        DecoderServiceException e = assertThrows(DecoderServiceException.class, this::decodeValidTelegram);
+        assertTrue(e.getMessage().contains("Decryption failed: wrong key"), e.getMessage());
     }
 }
