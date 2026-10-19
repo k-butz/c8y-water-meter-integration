@@ -23,6 +23,15 @@ fn find<'a>(records: &'a [ParsedMeasurements], header: &str) -> &'a ParsedMeasur
 }
 
 #[test]
+fn ci_0x78_has_no_tpl_header() {
+    let frame = axioma_frame(&[0x78, 0x04, 0x13, 0x10, 0x27, 0x00, 0x00]);
+    let result = build_driver_registry().process(&frame, None, None).unwrap();
+
+    assert_eq!(result.parsed_measurements.len(), 1, "{:?}", result.parsed_measurements);
+    assert_eq!(find(&result.parsed_measurements, "0413").value, "10");
+}
+
+#[test]
 fn unencrypted_trailing_0x2f_data_byte_is_kept() {
     let frame = axioma_frame(&[0x7A, 0x33, 0x00, 0x00, 0x00, 0x01, 0xFD, 0x74, 0x2F]);
     let result = build_driver_registry().process(&frame, None, None).unwrap();

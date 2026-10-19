@@ -393,17 +393,20 @@ pub fn parse_wmbus_records(raw_bytes: &[u8]) -> Vec<ParsedMeasurements> {
 
     let mut idx = 0;
 
-    // Fast-forward initial transport header (0x7A/0x78 = 5 bytes, 0x72/0x73/0x7E = 13 bytes) or filler bytes (0x2F)
+    // Fast-forward initial transport header (0x78 = 1 byte, 0x7A = 5 bytes, 0x72/0x73/0x7E = 13 bytes) or filler bytes (0x2F)
     if raw_bytes.len() >= 2 && raw_bytes[0] == 0x2F && raw_bytes[1] == 0x2F {
         while idx < raw_bytes.len() && raw_bytes[idx] == 0x2F {
             idx += 1;
         }
     } else if raw_bytes.len() >= 4 {
         match raw_bytes[0] {
-            0x78 | 0x7A => idx = 5,
+            0x78 => idx = 1,
+            0x7A => idx = 5,
             0x72 | 0x73 | 0x7E => idx = 13,
             _ => {
-                if raw_bytes.len() >= 12 && (raw_bytes[10] == 0x78 || raw_bytes[10] == 0x7A) {
+                if raw_bytes.len() >= 12 && raw_bytes[10] == 0x78 {
+                    idx = 11;
+                } else if raw_bytes.len() >= 12 && raw_bytes[10] == 0x7A {
                     idx = 15;
                 } else if raw_bytes.len() >= 12 && (raw_bytes[10] == 0x72 || raw_bytes[10] == 0x7E) {
                     idx = 23;
