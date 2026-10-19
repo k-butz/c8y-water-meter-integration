@@ -13,10 +13,14 @@ import com.cumulocity.sdk.client.measurement.MeasurementApi;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.sun.net.httpserver.HttpServer;
+
+import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -33,18 +37,24 @@ class OMSDecoderC8YParserServiceTest {
     private final MeasurementApi measurementApi = mock(MeasurementApi.class);
     private final HttpClient httpClient = mock(HttpClient.class);
 
+    @SuppressWarnings("unchecked")
+    private final ContextService<MicroserviceCredentials> contextService = mock(ContextService.class);
+
     private OMSDecoderC8YParserService service;
 
     @BeforeEach
-    @SuppressWarnings("unchecked")
     void setUp() {
-        ContextService<MicroserviceCredentials> contextService = mock(ContextService.class);
         when(contextService.getContext()).thenReturn(mock(MicroserviceCredentials.class));
 
-        service = new OMSDecoderC8YParserService(null, contextService, httpClient, "http://c8y.test");
-        service.identityApi = identityApi;
-        service.inventoryApi = inventoryApi;
-        service.measurementApi = measurementApi;
+        service = newService(httpClient, "http://c8y.test");
+    }
+
+    private OMSDecoderC8YParserService newService(HttpClient client, String baseUrl) {
+        OMSDecoderC8YParserService s = new OMSDecoderC8YParserService(null, contextService, client, baseUrl);
+        s.identityApi = identityApi;
+        s.inventoryApi = inventoryApi;
+        s.measurementApi = measurementApi;
+        return s;
     }
 
     private static String hex(String gatewayCsv) {
@@ -136,5 +146,31 @@ class OMSDecoderC8YParserServiceTest {
         decodeValidTelegram();
 
         verify(measurementApi).createBulk(any());
+    }
+
+    @Test
+    void hangingParserCallTimesOut() throws Exception {
+        meter(5L, null);
+        HttpServer parser = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        parser.createContext("/", exchange -> {
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ignored) {
+            }
+            byte[] body = EMPTY_RESULT.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        parser.start();
+        try {
+            service = newService(HttpClient.newHttpClient(), "http://127.0.0.1:" + parser.getAddress().getPort());
+            service.parserRequestTimeout = Duration.ofMillis(500);
+
+            assertTimeoutPreemptively(Duration.ofSeconds(2),
+                    () -> assertThrows(DecoderServiceException.class, this::decodeValidTelegram));
+        } finally {
+            parser.stop(0);
+        }
     }
 }

@@ -33,6 +33,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 
 
@@ -79,11 +80,18 @@ public class OMSDecoderC8YParserService implements DecoderService{
     // Use the explicit internal reverse-proxy path target registered via your cumulocity.json manifest
     private static final String PARSER_INTERNAL_PATH = "/service/c8y-oms-parser/api/v1/parse";
 
+    // Bound the parser call so a hanging parser cannot block request threads forever
+    private static final Duration PARSER_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+    Duration parserRequestTimeout = Duration.ofSeconds(15);
+
     @Autowired
     public OMSDecoderC8YParserService(RestConnector restConnector,
                                       ContextService<MicroserviceCredentials> contextService) {
         this(restConnector, contextService,
-                HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build(),
+                HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(PARSER_CONNECT_TIMEOUT)
+                        .build(),
                 System.getenv("C8Y_BASEURL"));
     }
 
@@ -235,6 +243,7 @@ public class OMSDecoderC8YParserService implements DecoderService{
                     //.uri(URI.create("http://localhost/service/c8y-oms-parser/api/v1/decode"))
                     //.uri(URI.create(baseUrl + "/service/c8y-oms-parser/api/v1/decode"))
                     .uri(URI.create(baseUrl + PARSER_INTERNAL_PATH))
+                    .timeout(parserRequestTimeout)
                     //.uri(URI.create("http://c8y-oms-parser/api/v1/decode"))
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
