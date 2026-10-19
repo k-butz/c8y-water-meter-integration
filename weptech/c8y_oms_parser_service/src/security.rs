@@ -188,7 +188,7 @@ impl SecurityEngine {
 
                 Self::validate_key(persistent_key)?;
 
-                let security = Self::parse_mode7(raw_payload)?;
+                let security = Self::parse_mode7(raw_payload, header_len)?;
 
                 let kenc = Self::derive_mode7_kenc(
                     persistent_key,
@@ -300,6 +300,7 @@ impl SecurityEngine {
 
     fn parse_mode7(
         raw_payload: &[u8],
+        ell_pos: usize,
     ) -> Result<Mode7SecurityInfo, ParseError> {
         if raw_payload.len() < 35 {
             return Err(ParseError::DecryptionError(
@@ -314,24 +315,16 @@ impl SecurityEngine {
             raw_payload[7],
         ];
 
-        let ell_pos = raw_payload
-            .iter()
-            .position(|&b| b == 0x8C)
-            .ok_or_else(|| {
-                ParseError::DecryptionError(
-                    "Mode 7 ELL header (0x8C) not found".into(),
-                )
-            })?;
-
-        if raw_payload.len() < ell_pos + 3 {
-            return Err(ParseError::DecryptionError(
-                "Incomplete ELL header".into(),
-            ));
+        if raw_payload[ell_pos] != 0x8C {
+            return Err(ParseError::DecryptionError(format!(
+                "Expected Mode 7 ELL CI 0x8C, found 0x{:02X}",
+                raw_payload[ell_pos]
+            )));
         }
 
         let afl_pos = ell_pos + 3;
 
-        if raw_payload.len() < afl_pos + 14 {
+        if raw_payload.len() < afl_pos + 4 {
             return Err(ParseError::DecryptionError(
                 "Incomplete AFL header".into(),
             ));
@@ -344,43 +337,44 @@ impl SecurityEngine {
             )));
         }
 
-        let message_counter = [
-            raw_payload[afl_pos + 5],
-            raw_payload[afl_pos + 6],
-            raw_payload[afl_pos + 7],
-            raw_payload[afl_pos + 8],
-        ];
+        let afl_len = raw_payload[afl_pos + 1] as usize;
+        let fcl = u16::from_le_bytes([raw_payload[afl_pos + 2], raw_payload[afl_pos + 3]]);
+        let tpl_pos = afl_pos + 2 + afl_len;
 
-        let mut tpl_pos = None;
-
-        for i in 0..raw_payload.len().saturating_sub(5) {
-            if raw_payload[i] != 0x7A {
-                continue;
-            }
-
-            let cf = u16::from_le_bytes([
-                raw_payload[i + 3],
-                raw_payload[i + 4],
-            ]);
-
-            let mode = ((cf >> 8) & 0x1F) as u8;
-
-            if mode == 7 {
-                tpl_pos = Some(i);
-                break;
-            }
+        // AFL fields follow the FCL in order MCL, KI, MCR, MAC, ML
+        let mut mcr_pos = afl_pos + 4;
+        if fcl & (1 << 13) != 0 {
+            mcr_pos += 1;
+        }
+        if fcl & (1 << 9) != 0 {
+            mcr_pos += 2;
         }
 
-        let tpl_pos = tpl_pos.ok_or_else(|| {
-            ParseError::DecryptionError(
-                "Mode 7 short TPL header (CI 0x7A) not found".into(),
-            )
-        })?;
+        if fcl & (1 << 11) == 0 {
+            return Err(ParseError::DecryptionError(format!(
+                "Mode 7 AFL has no message counter (FCL=0x{:04X})",
+                fcl
+            )));
+        }
 
-        if raw_payload.len() < tpl_pos + 6 {
+        if mcr_pos + 4 > tpl_pos || raw_payload.len() < tpl_pos + 6 {
             return Err(ParseError::DecryptionError(
-                "Incomplete Mode 7 TPL header".into(),
+                "Incomplete AFL header".into(),
             ));
+        }
+
+        let message_counter = [
+            raw_payload[mcr_pos],
+            raw_payload[mcr_pos + 1],
+            raw_payload[mcr_pos + 2],
+            raw_payload[mcr_pos + 3],
+        ];
+
+        if raw_payload[tpl_pos] != 0x7A {
+            return Err(ParseError::DecryptionError(format!(
+                "Expected Mode 7 short TPL CI 0x7A, found 0x{:02X}",
+                raw_payload[tpl_pos]
+            )));
         }
 
         let cf = u16::from_le_bytes([
@@ -431,13 +425,7 @@ impl SecurityEngine {
 
         let ciphertext_start = tpl_pos + 6;
 
-        let ciphertext_end = ciphertext_start
-            .checked_add(encrypted_len)
-            .ok_or_else(|| {
-                ParseError::DecryptionError(
-                    "Mode 7 encrypted length overflow".into(),
-                )
-            })?;
+        let ciphertext_end = ciphertext_start + encrypted_len;
 
         if raw_payload.len() < ciphertext_end {
             return Err(ParseError::DecryptionError(format!(
@@ -525,7 +513,6 @@ impl SecurityEngine {
 
         Ok(())
     }
-
 
     // ================================================================
     // PLAINTEXT VERIFICATION

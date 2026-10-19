@@ -109,6 +109,27 @@ fn mode5_wrong_key_is_rejected() {
 }
 
 #[test]
+fn mode7_ignores_tpl_lookalike_inside_afl() {
+    let key = hex::decode(MODE7_KEY).unwrap();
+
+    let mut tampered = mode7_frame();
+    // MAC bytes 22..30: 7A ?? ?? CF(10 07 -> mode 7) CFE(10 -> KDF A, key 0)
+    tampered[22] = 0x7A;
+    tampered[25] = 0x10;
+    tampered[26] = 0x07;
+    tampered[27] = 0x10;
+
+    let result = build_driver_registry()
+        .process(&tampered, Some(7), Some(&key))
+        .expect("tampered MAC must not change TPL position");
+
+    let records = &result.parsed_measurements;
+    assert_eq!(records.len(), 2, "{:?}", records);
+    assert_eq!(find(records, "0413").value, "10");
+    assert_eq!(find(records, "02FD74").value, "47");
+}
+
+#[test]
 fn ci_0x78_has_no_tpl_header() {
     let frame = axioma_frame(&[0x78, 0x04, 0x13, 0x10, 0x27, 0x00, 0x00]);
     let result = build_driver_registry().process(&frame, None, None).unwrap();
