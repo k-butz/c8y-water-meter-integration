@@ -8,8 +8,12 @@
   "replicas": 1,
   "contextPath": "c8y-oms-parser",
   "resources": {
-    "memory": "512Mi",
-    "cpu": "0.5"
+    "memory": "32Mi",
+    "cpu": "0.1"
+  },
+  "requestedResources": {
+    "memory": "16Mi",
+    "cpu": "50m"
   },
   "livenessProbe": {
     "httpGet": {
