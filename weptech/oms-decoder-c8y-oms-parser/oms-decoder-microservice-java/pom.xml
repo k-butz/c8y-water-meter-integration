@@ -34,11 +34,6 @@
       <version>${c8y.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.json</groupId>
-      <artifactId>json</artifactId>
-      <version>20230618</version>
-    </dependency>
-    <dependency>
       <groupId>com.nsn.cumulocity.clients-java</groupId>
       <artifactId>custom-decoders</artifactId>
       <version>${c8y.version}</version>
