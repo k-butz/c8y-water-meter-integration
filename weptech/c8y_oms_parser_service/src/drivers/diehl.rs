@@ -49,7 +49,7 @@ impl MeterDriver for DiehlDriver {
             raw_payload[HEADER_OFFSET..].to_vec()
         } else {
             let mode = EncryptionMode::from(Some(effective_mode));
-            SecurityEngine::decrypt_and_sanitize(mode, raw_payload, HEADER_OFFSET, key)?
+            SecurityEngine::decrypt_payload(mode, raw_payload, HEADER_OFFSET, key)?
         };
 
         // Debug log decrypted byte stream

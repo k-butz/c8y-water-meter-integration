@@ -42,7 +42,7 @@ impl MeterDriver for AxiomaDriver {
         };
 
         let decrypted_payload =
-            SecurityEngine::decrypt_and_sanitize(mode, raw_payload, 10, key)?;
+            SecurityEngine::decrypt_payload(mode, raw_payload, 10, key)?;
 
         let parsed_measurements = parse_wmbus_records(&decrypted_payload);
 

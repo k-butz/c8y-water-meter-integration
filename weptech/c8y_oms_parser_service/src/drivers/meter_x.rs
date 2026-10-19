@@ -36,7 +36,7 @@ impl MeterDriver for MeterXDriver {
         let mode = EncryptionMode::from(oms_mode);
 
         let payload_to_parse =
-            SecurityEngine::decrypt_and_sanitize(mode, raw_payload, 10, key)?;
+            SecurityEngine::decrypt_payload(mode, raw_payload, 10, key)?;
 
         let parsed_measurements = parse_wmbus_records(&payload_to_parse);
 

@@ -1,5 +1,5 @@
 // Handles transport-layer security (Mode 5 AES-CBC & Mode 7 AES-CBC
-// with KDF A) and post-decryption sanitization.
+// with KDF A).
 //
 // src/security.rs
 
@@ -47,7 +47,9 @@ struct Mode7SecurityInfo {
 pub struct SecurityEngine;
 
 impl SecurityEngine {
-    pub fn decrypt_and_sanitize(
+    /// Returns the payload following the DLL header, decrypted according
+    /// to `mode`.
+    pub fn decrypt_payload(
         mode: EncryptionMode,
         raw_payload: &[u8],
         header_len: usize,
@@ -61,8 +63,8 @@ impl SecurityEngine {
 
         let payload_to_decrypt = &raw_payload[header_len..];
 
-        let decrypted = match mode {
-            EncryptionMode::None => payload_to_decrypt.to_vec(),
+        match mode {
+            EncryptionMode::None => Ok(payload_to_decrypt.to_vec()),
 
             // ---------------------------------------------------------
             // MODE 5
@@ -118,7 +120,7 @@ impl SecurityEngine {
                         ))
                     })?;
 
-                buf
+                Ok(buf)
             }
 
             // ---------------------------------------------------------
@@ -165,11 +167,9 @@ impl SecurityEngine {
                         ))
                     })?;
 
-                buf
+                Ok(buf)
             }
-        };
-
-        Ok(Self::sanitize(&decrypted))
+        }
     }
 
     // ================================================================
@@ -404,21 +404,4 @@ impl SecurityEngine {
         Ok(())
     }
 
-    // ================================================================
-    // SANITIZATION
-    // ================================================================
-
-    fn sanitize(decrypted: &[u8]) -> Vec<u8> {
-        let mut slice = decrypted;
-
-        while slice.starts_with(&[0x2F]) {
-            slice = &slice[1..];
-        }
-
-        while slice.ends_with(&[0x2F]) {
-            slice = &slice[..slice.len() - 1];
-        }
-
-        slice.to_vec()
-    }
 }

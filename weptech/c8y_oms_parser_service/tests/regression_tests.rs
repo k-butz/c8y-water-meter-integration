@@ -3,7 +3,32 @@
 // Regression tests for parser / decryption bugs. Each test fails on the
 // code before the corresponding fix.
 
-use c8y_oms_parser_service::traits::parse_vif;
+use c8y_oms_parser_service::registry::build_driver_registry;
+use c8y_oms_parser_service::traits::{parse_vif, ParsedMeasurements};
+
+/// Builds a full wM-Bus frame for the Axioma meter (M=AXI, ID 09724574,
+/// version 0x20, type 0x07) from everything after the DLL header and sets L.
+fn axioma_frame(after_dll: &[u8]) -> Vec<u8> {
+    let mut frame = vec![0x00, 0x44, 0x09, 0x07, 0x74, 0x45, 0x72, 0x09, 0x20, 0x07];
+    frame.extend_from_slice(after_dll);
+    frame[0] = (frame.len() - 1) as u8;
+    frame
+}
+
+fn find<'a>(records: &'a [ParsedMeasurements], header: &str) -> &'a ParsedMeasurements {
+    records
+        .iter()
+        .find(|r| r.header_raw == header)
+        .unwrap_or_else(|| panic!("record {} missing in {:?}", header, records))
+}
+
+#[test]
+fn unencrypted_trailing_0x2f_data_byte_is_kept() {
+    let frame = axioma_frame(&[0x7A, 0x33, 0x00, 0x00, 0x00, 0x01, 0xFD, 0x74, 0x2F]);
+    let result = build_driver_registry().process(&frame, None, None).unwrap();
+
+    assert_eq!(find(&result.parsed_measurements, "01FD74").value, "47");
+}
 
 #[test]
 fn energy_vif_scales_to_kwh() {
