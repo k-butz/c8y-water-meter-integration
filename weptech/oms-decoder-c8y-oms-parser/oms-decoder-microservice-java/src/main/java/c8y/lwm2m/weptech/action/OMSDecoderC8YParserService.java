@@ -142,7 +142,7 @@ public class OMSDecoderC8YParserService implements DecoderService{
            if (meterMO != null) {
                // check if meter has encryption key
                meterEncryptionkey =  (String)meterMO.get(ENCRYPTION_KEY_TYPE);
-               meterOmsMode = (Long)meterMO.get(OMS_MODE);
+               meterOmsMode = toOmsMode(meterMO.get(OMS_MODE));
 
                if (meterOmsMode == null ) {
                    log.error("There is no OMS Mode configured for Meter with Serial {}", meterSerial);
@@ -189,6 +189,21 @@ public class OMSDecoderC8YParserService implements DecoderService{
         log.info("Finished decoding OMS Payload");
         return decoderResult;
 
+    }
+
+    // oms_mode may be stored as any JSON number or as a string
+    static Long toOmsMode(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return Long.parseLong(text.trim());
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private  String parseOMSPayload(String payloadToDecode, String encryptionKey, long omsMode) {

@@ -25,6 +25,7 @@ import static org.mockito.Mockito.*;
 
 class OMSDecoderC8YParserServiceTest {
 
+    private static final String EMPTY_RESULT = "{\"status\":\"success\",\"data\":{\"parsed_measurements\":[]}}";
 
     private final IdentityApi identityApi = mock(IdentityApi.class);
     private final InventoryApi inventoryApi = mock(InventoryApi.class);
@@ -86,5 +87,23 @@ class OMSDecoderC8YParserServiceTest {
     void emptyGatewayPayloadIsRejectedWithoutIndexError() {
         assertDoesNotThrow(() -> service.decode("", GId.asGId("1"), null));
         verifyNoInteractions(identityApi, httpClient);
+    }
+
+    @Test
+    void omsModeStoredAsStringIsAccepted() throws Exception {
+        meter("5", null);
+        parserResponds(200, EMPTY_RESULT);
+
+        assertDoesNotThrow(this::decodeValidTelegram);
+        verify(httpClient).send(any(HttpRequest.class), any());
+    }
+
+    @Test
+    void omsModeStoredAsIntegerIsAccepted() throws Exception {
+        meter(5, null);
+        parserResponds(200, EMPTY_RESULT);
+
+        assertDoesNotThrow(this::decodeValidTelegram);
+        verify(httpClient).send(any(HttpRequest.class), any());
     }
 }
