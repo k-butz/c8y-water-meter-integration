@@ -1,11 +1,20 @@
 {
   "apiVersion": "2",
+  "name": "@microservice.name@",
   "version": "@project.version@",
   "provider": {
     "name": "Cumulocity"
   },
   "isolation": "MULTI_TENANT",
-  "replicas": 2,
+  "replicas": 1,
+  "resources": {
+    "memory": "384Mi",
+    "cpu": "0.5"
+  },
+  "requestedResources": {
+    "memory": "192Mi",
+    "cpu": "100m"
+  },
   "livenessProbe": {
     "httpGet": {
       "path": "/health"
