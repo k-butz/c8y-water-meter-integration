@@ -32,6 +32,40 @@ fn axioma_mode5_frame() -> Vec<u8> {
 }
 
 #[test]
+fn mode5_decrypts_with_oms_iv_and_tpl_offset() {
+    let key = hex::decode("000102030405060708090A0B0C0D0E0F").unwrap();
+    let result = build_driver_registry()
+        .process(&axioma_mode5_frame(), Some(5), Some(&key))
+        .expect("Mode 5 frame must decrypt");
+
+    let records = &result.parsed_measurements;
+    assert_eq!(records.len(), 2, "{:?}", records);
+    assert_eq!(find(records, "0413").value, "10");
+    // Data byte 0x2F followed by AES filler 0x2F2F2F
+    assert_eq!(find(records, "02FD74").value, "47");
+}
+
+#[test]
+fn mode5_long_tpl_header_uses_tpl_address_for_iv() {
+    // DLL address (radio module 44332211) differs from the meter address in
+    // the long TPL header. The TPL fields give the same IV as
+    // `axioma_mode5_frame`, so the same ciphertext must decrypt.
+    let mut frame = vec![0x00, 0x44, 0x09, 0x07, 0x11, 0x22, 0x33, 0x44, 0x01, 0x37];
+    frame.extend_from_slice(&[0x72, 0x74, 0x45, 0x72, 0x09, 0x09, 0x07, 0x20, 0x07]); // CI ID M VER TYPE
+    frame.extend_from_slice(&[0x33, 0x00, 0x10, 0x05]); // ACC STS CF: mode 5, 1 block
+    frame.extend(hex::decode("0555a3c2c92cbf949bcf51aabc6b10a6").unwrap());
+    frame[0] = (frame.len() - 1) as u8;
+
+    let key = hex::decode("000102030405060708090A0B0C0D0E0F").unwrap();
+    let result = build_driver_registry()
+        .process(&frame, Some(5), Some(&key))
+        .expect("Mode 5 frame with long TPL header must decrypt");
+
+    assert_eq!(find(&result.parsed_measurements, "0413").value, "10");
+    assert_eq!(find(&result.parsed_measurements, "02FD74").value, "47");
+}
+
+#[test]
 fn encrypted_frame_without_key_is_rejected() {
     let registry = build_driver_registry();
     let frame = axioma_mode5_frame();

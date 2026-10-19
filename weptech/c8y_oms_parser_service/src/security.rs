@@ -41,12 +41,19 @@ impl From<Option<u8>> for EncryptionMode {
 struct TplHeader {
     /// Header length including the CI field
     len: usize,
+    access_no: u8,
     cf: u16,
+    /// Manufacturer + address used for the Mode 5 IV (None if the frame has no TPL header)
+    iv_prefix: Option<[u8; 8]>,
 }
 
 impl TplHeader {
     fn security_mode(&self) -> u8 {
         ((self.cf >> 8) & 0x1F) as u8
+    }
+
+    fn encrypted_blocks(&self) -> usize {
+        ((self.cf >> 4) & 0x0F) as usize
     }
 }
 
@@ -95,8 +102,6 @@ impl SecurityEngine {
             // MODE 5
             // ---------------------------------------------------------
             EncryptionMode::Mode5 => {
-                let payload_to_decrypt = &raw_payload[header_len..];
-
                 let key_bytes = key.ok_or_else(|| {
                     ParseError::DecryptionError(
                         "OMS Mode 5 requires a 128-bit key".into(),
@@ -105,27 +110,46 @@ impl SecurityEngine {
 
                 Self::validate_key(key_bytes)?;
 
-                if payload_to_decrypt.is_empty() {
-                    return Err(ParseError::DecryptionError(
-                        "Payload to decrypt is empty".into(),
-                    ));
-                }
+                let tpl = Self::parse_tpl(raw_payload, header_len)?;
 
-                if payload_to_decrypt.len() % 16 != 0 {
+                if tpl.security_mode() != 5 {
                     return Err(ParseError::DecryptionError(format!(
-                        "Mode 5 payload length ({}) is not a multiple of 16 bytes",
-                        payload_to_decrypt.len()
+                        "Expected Security Mode 5, found Mode {}",
+                        tpl.security_mode()
                     )));
                 }
 
-                let mut iv = [0u8; 16];
+                let iv_prefix = tpl.iv_prefix.ok_or_else(|| {
+                    ParseError::DecryptionError(
+                        "Mode 5 requires a short or long TPL header".into(),
+                    )
+                })?;
 
-                if raw_payload.len() >= 10 {
-                    iv[0..8].copy_from_slice(&raw_payload[2..10]);
-                    iv[8..16].copy_from_slice(&raw_payload[2..10]);
+                // IV = M-field + A-field followed by 8x Access Number
+                let mut iv = [tpl.access_no; 16];
+                iv[0..8].copy_from_slice(&iv_prefix);
+
+                let encrypted_len = tpl.encrypted_blocks() * 16;
+
+                if encrypted_len == 0 {
+                    return Err(ParseError::DecryptionError(
+                        "Mode 5 configuration specifies zero encrypted blocks".into(),
+                    ));
                 }
 
-                let mut buf = payload_to_decrypt.to_vec();
+                let ciphertext_start = header_len + tpl.len;
+                let ciphertext_end = ciphertext_start + encrypted_len;
+
+                if raw_payload.len() < ciphertext_end {
+                    return Err(ParseError::DecryptionError(format!(
+                        "Telegram contains only {} bytes after TPL, \
+                         but Mode 5 requires {} encrypted bytes",
+                        raw_payload.len() - ciphertext_start,
+                        encrypted_len
+                    )));
+                }
+
+                let mut buf = raw_payload[ciphertext_start..ciphertext_end].to_vec();
 
                 let cipher = Aes128CbcDec::new_from_slices(
                     key_bytes,
@@ -230,14 +254,40 @@ impl SecurityEngine {
 
         let h = &raw_payload[ci_pos..ci_pos + len];
 
-        // Configuration field (frames without TPL header are unencrypted)
-        let cf = match len {
-            1 => 0,
-            5 => u16::from_le_bytes([h[3], h[4]]),
-            _ => u16::from_le_bytes([h[11], h[12]]),
+        let tpl = match len {
+            1 => TplHeader {
+                len,
+                access_no: 0,
+                cf: 0,
+                iv_prefix: None,
+            },
+            5 => {
+                // Short header: manufacturer and address come from the DLL
+                let mut iv_prefix = [0u8; 8];
+                iv_prefix.copy_from_slice(&raw_payload[2..10]);
+                TplHeader {
+                    len,
+                    access_no: h[1],
+                    cf: u16::from_le_bytes([h[3], h[4]]),
+                    iv_prefix: Some(iv_prefix),
+                }
+            }
+            _ => {
+                // Long header: manufacturer and address come from the TPL
+                let mut iv_prefix = [0u8; 8];
+                iv_prefix[0..2].copy_from_slice(&h[5..7]);
+                iv_prefix[2..6].copy_from_slice(&h[1..5]);
+                iv_prefix[6..8].copy_from_slice(&h[7..9]);
+                TplHeader {
+                    len,
+                    access_no: h[9],
+                    cf: u16::from_le_bytes([h[11], h[12]]),
+                    iv_prefix: Some(iv_prefix),
+                }
+            }
         };
 
-        Ok(TplHeader { len, cf })
+        Ok(tpl)
     }
 
     // ================================================================
