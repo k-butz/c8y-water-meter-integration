@@ -233,9 +233,9 @@ pub fn parse_vif(primary_vif: u8, vif_stack: &[u8]) -> (String, String, f64) {
             (desc, "m³".to_string(), scale)
         }
 
-        // Energy (0x00 .. 0x07)
+        // Energy (0x00 .. 0x07): 10^(nnn-3) Wh = 10^(nnn-6) kWh
         0x00..=0x07 => {
-            let exp = (base_vif & 0x07) as i32 - 3;
+            let exp = (base_vif & 0x07) as i32 - 6;
             let scale = 10f64.powi(exp);
             ("Energy".to_string(), "kWh".to_string(), scale)
         }
