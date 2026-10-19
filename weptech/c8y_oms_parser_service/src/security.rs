@@ -1,5 +1,5 @@
 // Handles transport-layer security (Mode 5 AES-CBC & Mode 7 AES-CBC
-// with KDF A).
+// with KDF A) and post-decryption verification.
 //
 // src/security.rs
 
@@ -171,6 +171,8 @@ impl SecurityEngine {
                         ))
                     })?;
 
+                Self::verify_plaintext(&buf)?;
+
                 Ok(buf)
             }
 
@@ -217,6 +219,8 @@ impl SecurityEngine {
                             e
                         ))
                     })?;
+
+                Self::verify_plaintext(&buf)?;
 
                 Ok(buf)
             }
@@ -522,4 +526,19 @@ impl SecurityEngine {
         Ok(())
     }
 
+
+    // ================================================================
+    // PLAINTEXT VERIFICATION
+    // ================================================================
+
+    /// Decrypted OMS data starts with 0x2F2F; anything else means a wrong key.
+    fn verify_plaintext(decrypted: &[u8]) -> Result<(), ParseError> {
+        if !decrypted.starts_with(&[0x2F, 0x2F]) {
+            return Err(ParseError::DecryptionError(
+                "Decrypted data does not start with 0x2F2F (wrong key?)".into(),
+            ));
+        }
+
+        Ok(())
+    }
 }
