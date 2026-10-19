@@ -22,6 +22,24 @@ fn find<'a>(records: &'a [ParsedMeasurements], header: &str) -> &'a ParsedMeasur
         .unwrap_or_else(|| panic!("record {} missing in {:?}", header, records))
 }
 
+/// Plaintext 2F2F 0413 10270000 02FD74 2F00 2F2F2F, encrypted with
+/// `openssl enc -aes-128-cbc -nopad -K 000102030405060708090A0B0C0D0E0F
+///  -iv 0907744572092007 3333333333333333`.
+fn axioma_mode5_frame() -> Vec<u8> {
+    let mut after_dll = vec![0x7A, 0x33, 0x00, 0x10, 0x05]; // ACC=0x33, CF: mode 5, 1 block
+    after_dll.extend(hex::decode("0555a3c2c92cbf949bcf51aabc6b10a6").unwrap());
+    axioma_frame(&after_dll)
+}
+
+#[test]
+fn encrypted_frame_without_key_is_rejected() {
+    let registry = build_driver_registry();
+    let frame = axioma_mode5_frame();
+
+    assert!(registry.process(&frame, Some(5), None).is_err());
+    assert!(registry.process(&frame, None, None).is_err());
+}
+
 #[test]
 fn ci_0x78_has_no_tpl_header() {
     let frame = axioma_frame(&[0x78, 0x04, 0x13, 0x10, 0x27, 0x00, 0x00]);

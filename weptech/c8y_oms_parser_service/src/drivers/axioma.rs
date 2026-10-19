@@ -34,7 +34,7 @@ impl MeterDriver for AxiomaDriver {
     ) -> Result<ProcessResult, ParseError> {
         let header = DllHeader::from_bytes(raw_payload)?;
 
-        // If no key is provided, force unencrypted parsing (EncryptionMode::None)
+        // If no key is provided, parse unencrypted (encrypted frames are rejected)
         let mode = if key.is_none() {
             EncryptionMode::None
         } else {

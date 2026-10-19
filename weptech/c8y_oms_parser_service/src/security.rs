@@ -41,6 +41,13 @@ impl From<Option<u8>> for EncryptionMode {
 struct TplHeader {
     /// Header length including the CI field
     len: usize,
+    cf: u16,
+}
+
+impl TplHeader {
+    fn security_mode(&self) -> u8 {
+        ((self.cf >> 8) & 0x1F) as u8
+    }
 }
 
 // ================================================================
@@ -73,6 +80,13 @@ impl SecurityEngine {
         match mode {
             EncryptionMode::None => {
                 let tpl = Self::parse_tpl(raw_payload, header_len)?;
+
+                if tpl.security_mode() != 0 {
+                    return Err(ParseError::DecryptionError(format!(
+                        "Telegram is encrypted (security mode {}), but no key or OMS mode was given",
+                        tpl.security_mode()
+                    )));
+                }
 
                 Ok(raw_payload[header_len + tpl.len..].to_vec())
             }
@@ -214,7 +228,16 @@ impl SecurityEngine {
             )));
         }
 
-        Ok(TplHeader { len })
+        let h = &raw_payload[ci_pos..ci_pos + len];
+
+        // Configuration field (frames without TPL header are unencrypted)
+        let cf = match len {
+            1 => 0,
+            5 => u16::from_le_bytes([h[3], h[4]]),
+            _ => u16::from_le_bytes([h[11], h[12]]),
+        };
+
+        Ok(TplHeader { len, cf })
     }
 
     // ================================================================
