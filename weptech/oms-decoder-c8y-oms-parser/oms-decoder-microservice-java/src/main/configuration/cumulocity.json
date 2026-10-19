@@ -6,6 +6,14 @@
   },
   "isolation": "MULTI_TENANT",
   "replicas": 2,
+  "resources": {
+    "memory": "384Mi",
+    "cpu": "0.5"
+  },
+  "requestedResources": {
+    "memory": "192Mi",
+    "cpu": "100m"
+  },
   "livenessProbe": {
     "httpGet": {
       "path": "/health"

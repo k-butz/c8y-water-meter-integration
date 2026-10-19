@@ -115,6 +115,24 @@
               <name>${microservice.name}</name>
               <image>${microservice.name}</image>
               <encoding>UTF-8</encoding>
+              <!-- Fixed JVM sizing instead of the defaults derived from the
+                   container limit: the decoder uses ~25 MB heap and ~50 MB
+                   metaspace, see resources in cumulocity.json -->
+              <heap>
+                <min>32m</min>
+                <max>128m</max>
+              </heap>
+              <metaspace>
+                <min>64m</min>
+                <max>96m</max>
+              </metaspace>
+              <!-- replaces the SDK default G1 flags -->
+              <jvmArgs>
+                <jvmArg>-XX:+UseSerialGC</jvmArg>
+                <jvmArg>-Xss512k</jvmArg>
+                <jvmArg>-XX:ReservedCodeCacheSize=48m</jvmArg>
+                <jvmArg>-XX:TieredStopAtLevel=1</jvmArg>
+              </jvmArgs>
             </configuration>
           </execution>
         </executions>
