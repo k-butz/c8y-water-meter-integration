@@ -16,3 +16,9 @@ fn energy_vif_scales_to_kwh() {
     let (_, _, scale) = parse_vif(0x06, &[0x06]);
     assert!((scale - 1.0).abs() < 1e-12, "scale = {}", scale);
 }
+
+#[test]
+fn on_time_and_operating_time_are_not_swapped() {
+    assert_eq!(parse_vif(0x20, &[0x20]).0, "On Time");
+    assert_eq!(parse_vif(0x24, &[0x24]).0, "Operating Time");
+}

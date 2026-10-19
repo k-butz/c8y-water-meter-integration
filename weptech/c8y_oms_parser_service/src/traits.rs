@@ -240,7 +240,7 @@ pub fn parse_vif(primary_vif: u8, vif_stack: &[u8]) -> (String, String, f64) {
             ("Energy".to_string(), "kWh".to_string(), scale)
         }
 
-        // Operating Time (0x20..=0x23)
+        // On Time (0x20..=0x23)
         0x20..=0x23 => {
             let scale = match base_vif & 0x03 {
                 0 => 1.0,
@@ -249,10 +249,10 @@ pub fn parse_vif(primary_vif: u8, vif_stack: &[u8]) -> (String, String, f64) {
                 3 => 86400.0,
                 _ => 1.0,
             };
-            ("Operating Time".to_string(), "seconds".to_string(), scale)
+            ("On Time".to_string(), "seconds".to_string(), scale)
         }
 
-        // On Time Duration (0x24..=0x27)
+        // Operating Time (0x24..=0x27)
         0x24..=0x27 => {
             let scale = match base_vif & 0x03 {
                 0 => 1.0,
@@ -261,7 +261,7 @@ pub fn parse_vif(primary_vif: u8, vif_stack: &[u8]) -> (String, String, f64) {
                 3 => 86400.0,
                 _ => 1.0,
             };
-            ("On Time Duration".to_string(), "seconds".to_string(), scale)
+            ("Operating Time".to_string(), "seconds".to_string(), scale)
         }
 
         // Volume Flow (0x38 .. 0x3F)
