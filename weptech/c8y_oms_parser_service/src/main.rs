@@ -38,13 +38,7 @@ pub struct ParseResponse {
 }
 
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
-    if hex.len() % 2 != 0 {
-        return Err("Hex string must have an even length".into());
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|e| e.to_string()))
-        .collect()
+    hex::decode(hex).map_err(|e| e.to_string())
 }
 
 /// Helper function to safely redact encryption keys in audit logs
@@ -186,4 +180,15 @@ async fn main() {
     axum::serve(listener, app)
         .await
         .expect("Failed to start Axum web server");
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_to_bytes_rejects_non_ascii_without_panic() {
+        assert!(hex_to_bytes("aä1").is_err());
+        assert_eq!(hex_to_bytes("0aFF").unwrap(), vec![0x0A, 0xFF]);
+    }
+
 }
