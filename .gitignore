@@ -1,0 +1,10 @@
+# Build output (Rust and Maven)
+target/
+
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.iml

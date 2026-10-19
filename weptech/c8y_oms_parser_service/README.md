@@ -4,8 +4,8 @@ A high-performance, containerized Rust microservice built on **Axum** and **Toki
 
 ---
 ## Features
-* **Multi-Mode Decryption Support**: Engineered to parse unencrypted payloads as well as encrypted wM-Bus/OMS data streams utilizing Mode 5 (AES-CBC) and Mode 7 (AES-CTR/GCM) with dynamic IV resolution.
-* **Driver Registry Architecture**: Extensible, trait-based driver dispatch system (`MeterDriver`) supporting manufacturer-specific profiles (ex: Diehl, Axioma) alongside standard OMS fallbacks.
+* **Multi-Mode Decryption Support**: Engineered to parse unencrypted payloads as well as encrypted wM-Bus/OMS data streams utilizing Mode 5 (AES-CBC) and Mode 7 (AES-CBC with CMAC-based key derivation, KDF A).
+* **Driver Registry Architecture**: Extensible, trait-based driver dispatch system (`MeterDriver`) supporting manufacturer-specific profiles (ex: Diehl, Axioma).
 * **DIF/VIF Record Parsing**: Decodes standard and extended M-Bus data structures including Volume, Energy, Flow Rates, Temperatures, Time, Diagnostic Alarm Vectors, and Battery Status.
 * **Exact Field & Record Tracking**: Exposes `header_raw`, `dib`, `vib`, `storage_no`, `tariff`, and `device` indices for every measurement, enabling upstream applications to differentiate identical physical quantities (e.g., Forward vs. Return Flow).
 * **Enterprise Auditability & Key Masking**: Integrated `tracing` structured logging that automatically redacts sensitive AES keys and cleans payload attributes for secure, non-ANSI Cloud Logging Compliance.
@@ -32,21 +32,21 @@ A high-performance, containerized Rust microservice built on **Axum** and **Toki
   +-------------------------------------------------------------+
   |                     DriverRegistry                          |
   |  - Header Extraction (M-Field, Device Type, Version)        |
-  |  - Driver Dispatch (Exact Match -> Standard Fallback)       |
+  |  - Driver Dispatch (first driver whose supports() matches)  |
   +-------------------------------------------------------------+
          /                      |                      \
         v                       v                       v
 +---------------+       +---------------+       +---------------+
-| Axioma Driver |       | Diehl Driver  |       | Standard OMS  |
-|  (AXI / ASI)  |       |   (HYDRUS)    |       | Driver        |
+| Axioma Driver |       | Diehl Driver  |       | MeterX Driver |
+|  (AXI / ASI)  |       |   (HYDRUS)    |       |     (MTX)     |
 +---------------+       +---------------+       +---------------+
 ```
 ### Integration & Processing Flow
 1. **Payload Ingestion**: Cumulocity forwards incoming LNS/Gateway payloads (`POST /api/v1/parse`) containing base64 frames and optional AES encryption keys.
 2. **Middleware & Masking**: Axum handles incoming requests, logs execution metrics, and masks sensitive `encryptionkey` values before writing audit records.
 3. **Header Inspection**: `DriverRegistry` extracts M-Bus Data Link Layer (DLL) header parameters (Manufacturer M-Field, Device Type, and Version).
-4. **Driver Selection**: Registered drivers execute in priority sequence. Specific hardware drivers (e.g., `DiehlDriver`, `AxiomaDriver`) take precedence over generic standard handlers.
-5. **Decryption & Deframe**: The selected driver handles Mode 5 (AES-CBC) or Mode 7 (AES-CTR/GCM) payload decryption using dynamic vector initialization.
+4. **Driver Selection**: Registered drivers are checked in registration order. The first driver whose `supports()` matches the DLL header parses the telegram. If no driver matches, the request fails with `422`.
+5. **Decryption & Deframe**: The selected driver handles Mode 5 (AES-CBC) or Mode 7 (AES-CBC with CMAC-based key derivation) payload decryption.
 6. **Measurement Extraction**: Records are converted into structured measurement objects containing values, units, tariffs, and storage numbers, then returned as JSON to Cumulocity.
 
 ### Core Characteristics
@@ -60,9 +60,11 @@ A high-performance, containerized Rust microservice built on **Axum** and **Toki
 
 | Driver Name | Manufacturer Code (M-Field) | Target Hardware | Decryption Support |
 | :--- | :--- | :--- | :--- |
-| **`DiehlDriver`** | `DME` (`0x11A5`) | Diehl HYDRUS Ultrasonic Water Meter | Mode 7 (AES-CTR/GCM) |
+| **`DiehlDriver`** | `DME` / `HYD` | Diehl HYDRUS Ultrasonic Water Meter | Mode 7 (AES-CBC, KDF A) |
 | **`AxiomaDriver`** | `AXI` / `ASI` | Axioma Qalcosonic W1 | Unencrypted, Mode 5 |
-| **`StandardOmsDriver`**| Any Valid OMS Code | Generic OMS-compliant meters (Fallback) | Standard Mode 5 / Mode 7 |
+| **`MeterXDriver`** | `MTX` | Not specified | Unencrypted, Mode 5, Mode 7 (per `oms_mode`) |
+
+There is no generic fallback driver: telegrams from other manufacturers are rejected with `422`.
 
 ---
 ## HeaderRaw Reference Map
@@ -147,195 +149,79 @@ When mapping outputs in downstream Cumulocity microservices, any other external 
 
 ## Adding Support for New Meters
 
-The framework divides meters into two categories: **Strict OMS Standard** and **OMS Extensions / Vendor-Specific Profiles**.
-
-```text
-                      Is the meter 100% compliant 
-                          with OMS DIF/VIF spec?
-                             /              \
-                            /                \
-                         [YES]              [NO]
-                          /                  \
-                         v                    v
-            Register Header in          Implement Custom
-           `StandardOmsDriver`          `MeterDriver` Trait
-```
-
----
-
-### Scenario A: Adding a Meter that Strictly Follows the OMS Standard
-
-If a new meter (e.g., standard water meter with manufacturer code `LGW`) uses default OMS DIF/VIF structures, you do **not** need to create a new driver file. Simply extend the candidate matching rules in `StandardOmsDriver`.
-
-#### Step 1: Add New File (`src/drivers/standard_oms.rs`)
-
-Create `src/drivers/standard_oms.rs` and implement the standard candidate matching and parsing routines:
+Each manufacturer is handled by a driver implementing the `MeterDriver` trait (`src/traits.rs`):
 
 ```rust
-use crate::traits::{MeterDriver, ProcessResult, DriverError, MBusHeader};
-use crate::parser::dif_vif;
-
-pub struct StandardOmsDriver;
-
-impl StandardOmsDriver {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl MeterDriver for StandardOmsDriver {
-    fn name(&self) -> &'static str {
-        "StandardOmsDriver"
-    }
-
-    fn supports(&self, header: &MBusHeader) -> bool {
-        match header.manufacturer.as_str() {
-            "LGW" | "GEN" | "OMS" => true,
-            _ => false,
-        }
-    }
-
-    fn parse(&self, payload: &[u8], oms_mode: Option<u8>, key: Option<&[u8]>) -> Result<ProcessResult, DriverError> {
-        // Uses standard DIF/VIF chain parser
-        let measurements = dif_vif::parse_standard_oms_records(payload, oms_mode, key)?;
-        Ok(ProcessResult {
-            driver_name: self.name().into(),
-            manufacturer: "OMS".into(),
-            device_type: 0x07,
-            measurements,
-            payload_fields: serde_json::json!({}),
-        })
-    }
-}
-```
-
-#### Step 2: Register Candidate in DriverRegistry (`src/registry.rs`)
-
-Ensure `StandardOmsDriver` is present in the pipeline execution list:
-
-```rust
-pub fn build_driver_registry() -> DriverRegistry {
-    let mut registry = DriverRegistry::new();
-    registry.register(Box::new(DiehlDriver::new()));
-    registry.register(Box::new(AxiomaDriver::new()));
-    
-    // Catch-all standard fallback driver
-    registry.register(Box::new(StandardOmsDriver::new())); 
-    registry
-}
-```
-
----
-
-### Scenario B: Adding a Meter that Extends or Deviates from OMS
-
-When a manufacturer uses **proprietary VIF codes (`0xFD` / `0xFF`)**, non-standard header offsets, or custom encrypted payload layouts, implement a dedicated driver.
-
-#### Step 1: Create the Driver Module (`src/drivers/custom_vendor.rs`)
-
-Create a new file `src/drivers/custom_vendor.rs` implementing the `MeterDriver` trait:
-
-```rust
-use crate::traits::{MeterDriver, ProcessResult, DriverError, MBusHeader};
-use crate::parser::dif_vif;
-
-pub struct CustomVendorDriver;
-
-impl CustomVendorDriver {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl MeterDriver for CustomVendorDriver {
-    fn name(&self) -> &'static str {
-        "CustomVendorDriver"
-    }
-
-    fn supports(&self, header: &MBusHeader) -> bool {
-        // Example: Manufacturer code "NB", Type 0x9E, Version 0xEE
-        header.manufacturer == "NB" && header.device_type == 0x9E
-    }
-
+pub trait MeterDriver: Send + Sync {
+    fn supports(&self, header: &DllHeader) -> bool;
     fn parse(
-        &self, 
-        payload: &[u8], 
-        oms_mode: Option<u8>, 
-        key: Option<&[u8]>
-    ) -> Result<ProcessResult, DriverError> {
-        // 1. Perform custom transport header stripping or key/IV adjustments
-        let decrypted = decrypt_vendor_payload(payload, oms_mode, key)?;
-
-        // 2. Extract standard records using core DIF/VIF parser
-        let mut measurements = dif_vif::parse_records(&decrypted)?;
-
-        // 3. Handle Vendor-Specific Ext VIFs (e.g., 0xFD 0x17 for custom diagnostic)
-        for measurement in measurements.iter_mut() {
-            if measurement.vib == "FD17" {
-                measurement.description = "Vendor Specific Alarm Vector".into();
-                measurement.unit = "bitfield".into();
-            }
-        }
-
-        Ok(ProcessResult {
-            driver_name: self.name().into(),
-            manufacturer: "NB".into(),
-            device_type: 0x9E,
-            measurements,
-            payload_fields: serde_json::json!({ "custom_field": true }),
-        })
-    }
+        &self,
+        raw_payload: &[u8],
+        oms_mode: Option<u8>,
+        key: Option<&[u8]>,
+    ) -> Result<ProcessResult, ParseError>;
 }
 ```
 
-#### Step 2: Expose Module (`src/drivers/mod.rs`)
+`supports()` decides from the DLL header whether the driver handles the telegram. `parse()` decrypts the payload via `SecurityEngine` and extracts the records with `parse_wmbus_records`.
 
-Export the new module:
+### Step 1: Create the driver (`src/drivers/custom_vendor.rs`)
+
+The simplest starting point is a copy of `src/drivers/meter_x.rs`, which contains only the standard decryption and record parsing. Rename the struct and adjust `supports()`:
 
 ```rust
-pub mod axioma;
-pub mod diehl;
-pub mod standard_oms;
-pub mod custom_vendor; // Add new module
+impl MeterDriver for CustomVendorDriver {
+    fn supports(&self, header: &DllHeader) -> bool {
+        // Three-letter manufacturer code from the M-field
+        header.manufacturer_code() == "ABC"
+    }
+
+    // parse(): as in meter_x.rs, plus vendor-specific post-processing
+    // of the parsed records if needed (see diehl.rs for an example)
+}
 ```
 
-#### Step 3: Register in Driver Registry (`src/registry.rs`)
+### Step 2: Expose the module (`src/drivers/mod.rs`)
 
-Add the driver to the registry pipeline. **Order matters**: place specific vendor drivers *before* the generic fallback driver.
+```rust
+pub mod custom_vendor;
+```
+
+### Step 3: Register the driver (`src/registry.rs`)
+
+Drivers are checked in registration order, so register specific drivers before broader ones:
 
 ```rust
 use crate::drivers::custom_vendor::CustomVendorDriver;
 
 pub fn build_driver_registry() -> DriverRegistry {
     let mut registry = DriverRegistry::new();
-    
-    // Specific vendor drivers
-    registry.register(Box::new(DiehlDriver::new()));
+
     registry.register(Box::new(AxiomaDriver::new()));
-    registry.register(Box::new(CustomVendorDriver::new())); // Registered
-    
-    // Generic fallback driver
-    registry.register(Box::new(StandardOmsDriver::new())); 
-    
+    registry.register(Box::new(DiehlDriver::new()));
+    registry.register(Box::new(MeterXDriver::new()));
+    registry.register(Box::new(CustomVendorDriver::new()));
+
     registry
 }
 ```
 
-#### Step 4: Add Unit & Integration Tests (`tests/custom_vendor_test.rs`)
+### Step 4: Add a test (`tests/`)
 
-Verify driver detection and parsing with sample base64 payloads:
+Use a real telegram of the meter, as in `tests/meter_payload_tests.rs`:
 
 ```rust
+use base64::engine::general_purpose;
+use base64::Engine;
+use c8y_oms_parser_service::registry::build_driver_registry;
+
 #[test]
 fn test_custom_vendor_parsing() {
     let registry = build_driver_registry();
-    let raw_payload = base64::decode("...").unwrap();
-    
-    let result = registry.process(&raw_payload, Some(7), None);
-    assert!(result.is_ok());
-    
-    let process_data = result.unwrap();
-    assert_eq!(process_data.driver_name, "CustomVendorDriver");
+    let raw_payload = general_purpose::STANDARD.decode("...").unwrap();
+
+    let result = registry.process(&raw_payload, None, None).unwrap();
+    assert_eq!(result.driver_name, "CustomVendorDriver");
 }
 ```
 
@@ -352,47 +238,8 @@ Cumulocity microservices require a **Linux x86_64 Docker container** packaged in
 
 ---
 
-### Step 1: Create the \`cumulocity.json\` Manifest
-Ensure a \`cumulocity.json\` manifest file exists in your project root:
-
-```json 
-{
-  "apiVersion": "2",
-  "version": "1.0.3",
-  "provider": {
-    "name": "Cumulocity"
-  },
-  "isolation": "PER_TENANT",
-  "replicas": 1,
-  "contextPath": "c8y-oms-parser",
-  "resources": {
-    "memory": "512Mi",
-    "cpu": "0.5"
-  },
-  "livenessProbe": {
-    "httpGet": {
-      "path": "/health",
-      "port": 80
-    },
-    "initialDelaySeconds": 30,
-    "periodSeconds": 10,
-    "failureThreshold": 3
-  },
-  "readinessProbe": {
-    "httpGet": {
-      "path": "/health",
-      "port": 80
-    },
-    "initialDelaySeconds": 20,
-    "periodSeconds": 10,
-    "failureThreshold": 3
-  },
-  "requiredRoles": [
-    "ROLE_INVENTORY_READ"
-  ],
-  "roles": []
-}
-```
+### Step 1: Check the `cumulocity.json` Manifest
+The manifest is part of this project (`cumulocity.json`). It defines the application name, version, isolation, resources and health probes.
 
 ---
 

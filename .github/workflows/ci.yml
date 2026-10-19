@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  parser:
+    name: OMS parser (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: weptech/c8y_oms_parser_service
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keep in sync with the builder image in the parser Dockerfile
+      - name: Install Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            weptech/c8y_oms_parser_service/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('weptech/c8y_oms_parser_service/Cargo.lock') }}
+
+      - name: Test
+        run: cargo test --locked
+
+  decoder:
+    name: OMS decoder (Java)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: weptech/oms-decoder-c8y-oms-parser/oms-decoder-microservice-java
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Test
+        run: mvn -B test
