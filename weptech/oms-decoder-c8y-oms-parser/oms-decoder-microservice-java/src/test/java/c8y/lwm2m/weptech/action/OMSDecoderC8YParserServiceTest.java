@@ -116,4 +116,25 @@ class OMSDecoderC8YParserServiceTest {
         DecoderServiceException e = assertThrows(DecoderServiceException.class, this::decodeValidTelegram);
         assertTrue(e.getMessage().contains("Decryption failed: wrong key"), e.getMessage());
     }
+
+    @Test
+    void noMeasurementsAreSentWhenNoRecordMatches() throws Exception {
+        meter(5L, null);
+        parserResponds(200, EMPTY_RESULT);
+
+        decodeValidTelegram();
+
+        verify(measurementApi, never()).createBulk(any());
+    }
+
+    @Test
+    void matchingRecordIsSent() throws Exception {
+        meter(5L, null);
+        parserResponds(200, "{\"status\":\"success\",\"data\":{\"parsed_measurements\":["
+                + "{\"header_raw\":\"0413\",\"value\":\"10\",\"unit\":\"m³\"}]}}");
+
+        decodeValidTelegram();
+
+        verify(measurementApi).createBulk(any());
+    }
 }

@@ -406,6 +406,11 @@ public class OMSDecoderC8YParserService implements DecoderService{
                     }
                 } // end of for
 
+                if (measurementsToSend.isEmpty()) {
+                    log.info("No supported measurements in payload, nothing to send");
+                    return;
+                }
+
                 MeasurementCollectionRepresentation collection = new MeasurementCollectionRepresentation();
                 collection.setMeasurements(measurementsToSend);
                 measurementApi.createBulk(collection);
